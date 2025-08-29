@@ -1,0 +1,12 @@
+fastapi
+uvicorn
+langchain
+langchain-community
+chromadb
+sqlmodel
+ollama
+python-dotenv
+requests
+pydantic
+PyPDF2
+docx
