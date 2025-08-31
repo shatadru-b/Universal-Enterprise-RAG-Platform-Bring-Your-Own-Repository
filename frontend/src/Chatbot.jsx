@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { Box, Paper, Typography, TextField, Button, CircularProgress } from '@mui/material';
+import { Box, Paper, Typography, TextField, Button, CircularProgress, Tooltip } from '@mui/material';
 
-const Chatbot = () => {
+const Chatbot = ({ disabled = false }) => {
   const [messages, setMessages] = useState([
     { sender: 'bot', text: 'Ask me anything about your ingested documents!' }
   ]);
@@ -33,10 +33,12 @@ const Chatbot = () => {
     setLoading(false);
   };
 
+  const sendDisabled = disabled || loading || !input.trim();
+
   return (
-    <Paper sx={{ p: 3 }}>
+    <Paper sx={{ p: 3, borderRadius: 3, boxShadow: 3, height: '100%', display: 'flex', flexDirection: 'column' }}>
       <Typography variant="h6">Chat with your documents</Typography>
-      <Box sx={{ minHeight: 200, maxHeight: 300, overflowY: 'auto', my: 2 }}>
+      <Box sx={{ flex: 1, minHeight: 260, maxHeight: 520, overflowY: 'auto', my: 2, pr: 1 }}>
         {messages.map((msg, i) => (
           <Box key={i} sx={{ textAlign: msg.sender === 'user' ? 'right' : 'left', mb: 1 }}>
             <b>{msg.sender === 'user' ? 'You' : 'Bot'}:</b> {msg.text}
@@ -44,18 +46,21 @@ const Chatbot = () => {
         ))}
         {loading && <CircularProgress size={20} />}
       </Box>
-      <Box sx={{ display: 'flex', gap: 1 }}>
-        <TextField
-          fullWidth
-          value={input}
-          onChange={e => setInput(e.target.value)}
-          onKeyDown={e => e.key === 'Enter' && handleSend()}
-          placeholder="Type your question..."
-        />
-        <Button variant="contained" onClick={handleSend} disabled={loading || !input.trim()}>
-          Send
-        </Button>
-      </Box>
+      <Tooltip title={disabled ? 'Ingest a document to start chatting' : ''} placement="top">
+        <Box sx={{ display: 'flex', gap: 1 }}>
+          <TextField
+            fullWidth
+            disabled={disabled}
+            value={input}
+            onChange={e => setInput(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && !sendDisabled && handleSend()}
+            placeholder={disabled ? 'Upload or link a document to enable chat...' : 'Type your question...'}
+          />
+          <Button variant="contained" onClick={handleSend} disabled={sendDisabled}>
+            Send
+          </Button>
+        </Box>
+      </Tooltip>
     </Paper>
   );
 };

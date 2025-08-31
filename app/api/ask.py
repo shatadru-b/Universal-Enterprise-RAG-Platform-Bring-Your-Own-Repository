@@ -35,8 +35,10 @@ async def ask(request: AskRequest):
     tenant_id = request.tenant_id
     prev_answer = request.prev_answer
 
-    # Detect short refinement prompts like "in 100 words"/"in 50 words".
-    m_refine = re.search(r"in\s+(\d+)\s+words?", question.strip(), re.I)
+    # Detect summary intent (avoid misclassifying "summarise in 100 words" as refinement)
+    is_summary_intent = bool(re.search(r"\bsummary\b|\bsummarize\b|\bsummarise\b|tl;dr", question, re.I))
+    # Detect short refinement prompts like "in 100 words"/"in 50 words" only if not summarization
+    m_refine = re.search(r"in\s+(\d+)\s+words?", question.strip(), re.I) if not is_summary_intent else None
     if m_refine:
         word_target = int(m_refine.group(1))
         # determine the source answer: explicit prev_answer or last cached answer for tenant
@@ -108,59 +110,14 @@ async def ask(request: AskRequest):
     print(f"[RETRIEVAL DEBUG] Total docs retrieved: {len(docs)}")
     print(f"[RETRIEVAL DEBUG] Context passed to LLM (first 500 chars): {repr(context[:500])}")
 
-    # Quick deterministic handler for surname lookups to avoid LLM hallucination
-    m_name = re.search(r"what is (?:the )?surname of\s+([A-Za-z]+)\b|surname of\s+([A-Za-z]+)\b", question, re.I)
-    if m_name:
-        name = m_name.group(1) or m_name.group(2)
-        name = name.strip()
-        # helper to search docs for 'Firstname Lastname' patterns
-        def find_surname_in_docs(name, docs_list):
-            if not docs_list:
-                return None
-            pat = re.compile(rf"\b{name}\b\s+([A-Z][A-Za-z'\-]+)")
-            for idx, d in enumerate(docs_list):
-                if not d:
-                    continue
-                m = pat.search(d)
-                if m:
-                    surname = m.group(1).strip()
-                    snippet = d[max(0, m.start()-80):m.end()+80]
-                    return {"surname": surname, "chunk_index": idx, "snippet": snippet}
-            return None
-
-        # search retrieved docs first
-        found = find_surname_in_docs(name, docs)
-        if not found:
-            # fallback to stored documents in collection
-            try:
-                all_results = collection.get(include=["documents"], limit=1000)
-                stored_docs = all_results.get("documents", [])
-                if stored_docs and isinstance(stored_docs[0], list):
-                    stored_docs = stored_docs[0]
-                found = find_surname_in_docs(name, stored_docs)
-            except Exception as e:
-                print(f"[SURNAME DEBUG] error fetching stored docs: {e}")
-
-        if found:
-            return {
-                "answer": f"{name}'s surname is {found['surname']}",
-                "chunk_index": found["chunk_index"],
-                "snippet": found["snippet"],
-                "question": question,
-                "tenant_id": tenant_id
-            }
-        else:
-            return {
-                "answer": f"The surname of {name} is not found in the provided document.",
-                "question": question,
-                "tenant_id": tenant_id
-            }
+    # Removed special-case surname handler to keep logic generic
 
     # Fallback: deterministic substring search in stored documents when retrieval fails
     # or when retrieved docs look like placeholders (e.g., 'Chunk 0') or the question
     # explicitly asks about a mention. This helps with yes/no and mention queries
     # (e.g., "Is there any mention of 'tridion'?").
-    presence_query = bool(re.search(r"\bmention\b|\bis there any\b|\bany mention\b", question, re.I))
+    # Keep fallback generic; do not key off specific phrasing
+    presence_query = False
     # detect placeholder docs (common when persistent DB had placeholder entries)
     def docs_look_like_placeholders(ds):
         if not ds:
@@ -301,7 +258,7 @@ Context:
 
 Question: {question}
 
-Answer as concisely as possible, citing the chunk number if relevant:
+Answer as concisely as possible. Do not invent question numbers or sections. If not found, reply exactly: The answer is not found in the provided document.
         """
     )
     # Instantiate the LLM - class may be OllamaLLM or legacy Ollama

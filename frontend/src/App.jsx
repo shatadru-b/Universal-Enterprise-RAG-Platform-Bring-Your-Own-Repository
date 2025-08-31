@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 
-import { Container, Typography, Box, Button, TextField, Paper, CircularProgress, Tabs, Tab } from '@mui/material';
+import { Container, Typography, Box, Button, TextField, Paper, CircularProgress, Tabs, Tab, AppBar, Toolbar, Grid, Alert, Stack } from '@mui/material';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import LinkIcon from '@mui/icons-material/Link';
 import Chatbot from './Chatbot';
@@ -17,7 +17,7 @@ const UploadOrLink = ({ onIngest, loading }) => {
   const handleUrlSubmit = () => url && onIngest({ url });
 
   return (
-    <Paper sx={{ p: 3, mb: 3 }}>
+    <Paper sx={{ p: 3, mb: 3, borderRadius: 3, boxShadow: 3 }}>
       <Typography variant="h6" gutterBottom>
         Ingest a Document or Repository
       </Typography>
@@ -89,28 +89,34 @@ const App = () => {
   };
 
   return (
-    <Container maxWidth="sm" sx={{ mt: 5 }}>
-      <Typography variant="h4" align="center" gutterBottom>
-        Universal Enterprise RAG Platform
-      </Typography>
-      <Typography align="center" sx={{ mb: 3 }}>
-        Upload a file or provide a repository link. Ask questions via the chatbot below!
-      </Typography>
-      {status.length > 0 && (
-        <Paper sx={{ p: 2, mb: 2 }}>
-          {status.map((s, i) => (
-            <Typography key={i} color={s.type === 'error' ? 'error' : s.type === 'success' ? 'green' : 'textPrimary'}>
-              {s.msg}
-            </Typography>
-          ))}
-        </Paper>
-      )}
-      {!ingested ? (
-        <UploadOrLink onIngest={handleIngest} loading={loading} />
-      ) : (
-        <Chatbot />
-      )}
-    </Container>
+    <Box sx={{ minHeight: '100vh', bgcolor: (t) => t.palette.mode === 'dark' ? 'background.default' : '#f7f9fb' }}>
+      <AppBar position="sticky" color="primary" elevation={2}>
+        <Toolbar>
+          <Typography variant="h6" sx={{ flexGrow: 1 }}>
+            Universal Enterprise RAG Platform
+          </Typography>
+        </Toolbar>
+      </AppBar>
+      <Container maxWidth="lg" sx={{ py: 3 }}>
+        <Grid container spacing={3} alignItems="stretch">
+          <Grid item xs={12} md={4}>
+            <UploadOrLink onIngest={handleIngest} loading={loading} />
+            {status.length > 0 && (
+              <Stack spacing={1} sx={{ mt: 2 }}>
+                {status.map((s, i) => (
+                  <Alert key={i} severity={s.type === 'error' ? 'error' : s.type === 'success' ? 'success' : 'info'}>
+                    {s.msg}
+                  </Alert>
+                ))}
+              </Stack>
+            )}
+          </Grid>
+          <Grid item xs={12} md={8}>
+            <Chatbot disabled={!ingested} />
+          </Grid>
+        </Grid>
+      </Container>
+    </Box>
   );
 };
 
