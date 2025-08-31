@@ -35,12 +35,26 @@ def chunk_document(text, chunk_size=512, overlap=64):
     """
     Splits text into overlapping chunks for embedding.
     """
+    chunk_size = 1024  # Increased chunk size for better context
+    overlap = 128      # Slightly increased overlap
     chunks = []
     start = 0
+    import re
+    control_re = re.compile(r"[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]+")
     while start < len(text):
         end = min(start + chunk_size, len(text))
-        chunks.append(text[start:end])
+        chunk = text[start:end]
+        # Remove control/binary characters which may appear from bad decoding
+        chunk = control_re.sub(" ", chunk)
+        # Trim whitespace
+        chunk = chunk.strip()
+        if not chunk:
+            start += chunk_size - overlap
+            continue
+        chunks.append(chunk)
+        print(f"[INGEST DEBUG] Chunk {len(chunks)-1}: {repr(chunk[:100])} ...")
         start += chunk_size - overlap
+    print(f"[INGEST DEBUG] Total chunks created: {len(chunks)}")
     return chunks
 
 
@@ -49,11 +63,16 @@ def embed_chunks(chunks):
     """
     Calls Ollama's embedding API via LangChain for real embeddings.
     """
+    # Prefer the official langchain-ollama if available
     try:
-        from langchain_community.embeddings import OllamaEmbeddings
-    except ImportError:
-        raise ImportError("Please install langchain-community: pip install langchain-community")
-    embedder = OllamaEmbeddings(model="all-minilm:22m")
+        from langchain_ollama import OllamaEmbeddings as OllamaEmbeddingsOfficial
+        embedder = OllamaEmbeddingsOfficial(model="all-minilm:22m")
+    except Exception:
+        try:
+            from langchain_community.embeddings import OllamaEmbeddings
+            embedder = OllamaEmbeddings(model="all-minilm:22m")
+        except Exception:
+            raise ImportError("Please install langchain-ollama or langchain-community: pip install langchain-ollama or pip install langchain-community")
     embeddings = embedder.embed_documents(chunks)
     if embeddings and len(embeddings) > 0:
         print(f"[DEBUG] Embedding dimension: {len(embeddings[0])}")

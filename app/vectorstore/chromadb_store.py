@@ -18,7 +18,7 @@ def add_embeddings(collection, embeddings, metadatas):
     Each embedding must be a list of floats.
     """
     ids = [f"doc_{i}" for i in range(len(embeddings))]
-    documents = [meta.get("text", f"Chunk {i}") for i, meta in enumerate(metadatas)]
+    documents = [meta["text"] for meta in metadatas]
     # Chroma expects: ids, embeddings, metadatas, documents
     collection.add(
         ids=ids,
