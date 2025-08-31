@@ -1,8 +1,12 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 
-import { Container, Typography, Box, Button, TextField, Paper, CircularProgress, Tabs, Tab, AppBar, Toolbar, Grid, Alert, Stack } from '@mui/material';
+import { Container, Typography, Box, Button, TextField, Paper, CircularProgress, Tabs, Tab, AppBar, Toolbar, Grid, Alert, Stack, CssBaseline, useMediaQuery, ToggleButton, ToggleButtonGroup } from '@mui/material';
+import { ThemeProvider, createTheme } from '@mui/material/styles';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import LinkIcon from '@mui/icons-material/Link';
+import DarkModeIcon from '@mui/icons-material/DarkModeOutlined';
+import LightModeIcon from '@mui/icons-material/LightModeOutlined';
+import LaptopIcon from '@mui/icons-material/LaptopOutlined';
 import Chatbot from './Chatbot';
 
 const UploadOrLink = ({ onIngest, loading }) => {
@@ -48,6 +52,19 @@ const UploadOrLink = ({ onIngest, loading }) => {
 
 
 const App = () => {
+  // Theme preference: 'system' | 'light' | 'dark'
+  const prefersDark = useMediaQuery('(prefers-color-scheme: dark)');
+  const [themePref, setThemePref] = useState('system');
+  useEffect(() => {
+    const saved = localStorage.getItem('themePref');
+    if (saved === 'light' || saved === 'dark' || saved === 'system') setThemePref(saved);
+  }, []);
+  useEffect(() => {
+    localStorage.setItem('themePref', themePref);
+  }, [themePref]);
+  const mode = themePref === 'system' ? (prefersDark ? 'dark' : 'light') : themePref;
+  const theme = useMemo(() => createTheme({ palette: { mode } }), [mode]);
+
   const [ingested, setIngested] = useState(false);
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState([]);
@@ -89,34 +106,55 @@ const App = () => {
   };
 
   return (
-    <Box sx={{ minHeight: '100vh', bgcolor: (t) => t.palette.mode === 'dark' ? 'background.default' : '#f7f9fb' }}>
-      <AppBar position="sticky" color="primary" elevation={2}>
-        <Toolbar>
-          <Typography variant="h6" sx={{ flexGrow: 1 }}>
-            Universal Enterprise RAG Platform
-          </Typography>
-        </Toolbar>
-      </AppBar>
-      <Container maxWidth="lg" sx={{ py: 3 }}>
-        <Grid container spacing={3} alignItems="stretch">
-          <Grid item xs={12} md={4}>
-            <UploadOrLink onIngest={handleIngest} loading={loading} />
-            {status.length > 0 && (
-              <Stack spacing={1} sx={{ mt: 2 }}>
-                {status.map((s, i) => (
-                  <Alert key={i} severity={s.type === 'error' ? 'error' : s.type === 'success' ? 'success' : 'info'}>
-                    {s.msg}
-                  </Alert>
-                ))}
-              </Stack>
-            )}
+    <ThemeProvider theme={theme}>
+      <CssBaseline />
+      <Box sx={{ minHeight: '100vh', bgcolor: 'background.default' }}>
+        <AppBar position="sticky" color="primary" elevation={2}>
+          <Toolbar>
+            <Typography variant="h6" sx={{ flexGrow: 1 }}>
+              Universal Enterprise RAG Platform
+            </Typography>
+            <ToggleButtonGroup
+              size="small"
+              value={themePref}
+              exclusive
+              onChange={(_, v) => v && setThemePref(v)}
+              aria-label="Theme selection"
+              color="secondary"
+            >
+              <ToggleButton value="light" aria-label="Light theme">
+                <LightModeIcon fontSize="small" />
+              </ToggleButton>
+              <ToggleButton value="dark" aria-label="Dark theme">
+                <DarkModeIcon fontSize="small" />
+              </ToggleButton>
+              <ToggleButton value="system" aria-label="System theme">
+                <LaptopIcon fontSize="small" />
+              </ToggleButton>
+            </ToggleButtonGroup>
+          </Toolbar>
+        </AppBar>
+        <Container maxWidth="lg" sx={{ py: 3 }}>
+          <Grid container spacing={3} alignItems="stretch">
+            <Grid item xs={12} md={4}>
+              <UploadOrLink onIngest={handleIngest} loading={loading} />
+              {status.length > 0 && (
+                <Stack spacing={1} sx={{ mt: 2 }}>
+                  {status.map((s, i) => (
+                    <Alert key={i} severity={s.type === 'error' ? 'error' : s.type === 'success' ? 'success' : 'info'}>
+                      {s.msg}
+                    </Alert>
+                  ))}
+                </Stack>
+              )}
+            </Grid>
+            <Grid item xs={12} md={8}>
+              <Chatbot disabled={!ingested} />
+            </Grid>
           </Grid>
-          <Grid item xs={12} md={8}>
-            <Chatbot disabled={!ingested} />
-          </Grid>
-        </Grid>
-      </Container>
-    </Box>
+        </Container>
+      </Box>
+    </ThemeProvider>
   );
 };
 
