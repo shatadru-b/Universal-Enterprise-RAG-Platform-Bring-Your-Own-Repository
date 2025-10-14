@@ -9,5 +9,18 @@ ollama
 python-dotenv
 requests
 pydantic
+
+# Document Processing Libraries
 PyPDF2
-docx
+pdfplumber
+python-docx
+openpyxl
+xlrd
+python-pptx
+pandas
+chardet
+beautifulsoup4
+lxml
+markdown
+Pillow
+pytesseract

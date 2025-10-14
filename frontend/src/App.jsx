@@ -1,24 +1,51 @@
 import React, { useEffect, useMemo, useState } from 'react';
 
-import { Container, Typography, Box, Button, TextField, Paper, CircularProgress, Tabs, Tab, AppBar, Toolbar, Grid, Alert, Stack, CssBaseline, useMediaQuery, ToggleButton, ToggleButtonGroup } from '@mui/material';
+import { Container, Typography, Box, Button, TextField, Paper, CircularProgress, Tabs, Tab, AppBar, Toolbar, Grid, Alert, Stack, CssBaseline, useMediaQuery, ToggleButton, ToggleButtonGroup, List, ListItem, ListItemText, IconButton } from '@mui/material';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import LinkIcon from '@mui/icons-material/Link';
 import DarkModeIcon from '@mui/icons-material/DarkModeOutlined';
 import LightModeIcon from '@mui/icons-material/LightModeOutlined';
 import LaptopIcon from '@mui/icons-material/LaptopOutlined';
+import DeleteIcon from '@mui/icons-material/Delete';
+import InsertDriveFileIcon from '@mui/icons-material/InsertDriveFile';
 import Chatbot from './Chatbot';
 
-const UploadOrLink = ({ onIngest, loading }) => {
+const UploadOrLink = ({ onIngest, loading, uploadedFiles, onDeleteFile, onRefreshFiles }) => {
   const [tab, setTab] = useState(0);
-  const [file, setFile] = useState(null);
+  const [files, setFiles] = useState([]);
   const [url, setUrl] = useState('');
+  const fileInputRef = React.useRef(null);
+  const [key, setKey] = useState(0); // Key to force re-render of input
 
   const handleTabChange = (e, newValue) => setTab(newValue);
-  const handleFileChange = (e) => setFile(e.target.files[0]);
+  
+  const handleFileChange = (e) => {
+    const selectedFiles = Array.from(e.target.files);
+    console.log('Files selected:', selectedFiles.map(f => f.name));
+    setFiles(selectedFiles);
+  };
+  
   const handleUrlChange = (e) => setUrl(e.target.value);
-  const handleUpload = () => file && onIngest({ file });
-  const handleUrlSubmit = () => url && onIngest({ url });
+  
+  const handleUpload = async () => {
+    if (files.length > 0) {
+      console.log('Starting upload for:', files.map(f => f.name));
+      const success = await onIngest({ files });
+      
+      // Reset regardless of success to allow re-selection
+      console.log('Upload finished, resetting input. Success:', success);
+      setFiles([]);
+      setKey(prevKey => prevKey + 1); // Force input to re-render
+    }
+  };
+  
+  const handleUrlSubmit = async () => {
+    if (url) {
+      await onIngest({ url });
+      setUrl(''); // Clear URL after submit
+    }
+  };
 
   return (
     <Paper sx={{ p: 3, mb: 3, borderRadius: 3, boxShadow: 3 }}>
@@ -30,12 +57,66 @@ const UploadOrLink = ({ onIngest, loading }) => {
         <Tab icon={<LinkIcon />} label="Repository Link" />
       </Tabs>
       {tab === 0 && (
-        <Box sx={{ mt: 2, display: 'flex', alignItems: 'center' }}>
-          <input type="file" onChange={handleFileChange} />
-          <Button variant="contained" onClick={handleUpload} disabled={loading || !file} sx={{ ml: 2 }}>
-            Upload
-          </Button>
-        </Box>
+        <>
+          <Box sx={{ mt: 2, display: 'flex', alignItems: 'center' }}>
+            <input 
+              key={key}
+              type="file" 
+              onChange={handleFileChange} 
+              multiple 
+              ref={fileInputRef}
+              disabled={loading}
+            />
+            <Button 
+              variant="contained" 
+              onClick={handleUpload} 
+              disabled={loading || files.length === 0} 
+              sx={{ ml: 2 }}
+            >
+              {loading ? 'Uploading...' : 'Upload'}
+            </Button>
+          </Box>
+          
+          {/* Display uploaded files */}
+          {uploadedFiles && uploadedFiles.length > 0 && (
+            <Box sx={{ mt: 3 }}>
+              <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                Uploaded Files:
+              </Typography>
+              <List dense>
+                {uploadedFiles.map((filename, index) => (
+                  <ListItem
+                    key={index}
+                    sx={{
+                      border: 1,
+                      borderColor: 'divider',
+                      borderRadius: 1,
+                      mb: 1,
+                      bgcolor: 'background.paper'
+                    }}
+                    secondaryAction={
+                      <IconButton 
+                        edge="end" 
+                        aria-label="delete"
+                        onClick={() => onDeleteFile(filename)}
+                        color="error"
+                        size="small"
+                      >
+                        <DeleteIcon />
+                      </IconButton>
+                    }
+                  >
+                    <InsertDriveFileIcon sx={{ mr: 1, color: 'primary.main' }} fontSize="small" />
+                    <ListItemText 
+                      primary={filename}
+                      primaryTypographyProps={{ variant: 'body2' }}
+                    />
+                  </ListItem>
+                ))}
+              </List>
+            </Box>
+          )}
+        </>
       )}
       {tab === 1 && (
         <Box sx={{ mt: 2, display: 'flex', alignItems: 'center' }}>
@@ -68,41 +149,102 @@ const App = () => {
   const [ingested, setIngested] = useState(false);
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState([]);
+  const [uploadedFiles, setUploadedFiles] = useState([]);
 
   const addStatus = (msg, type = 'info') => setStatus((s) => [...s, { msg, type }]);
   const clearStatus = () => setStatus([]);
 
+  // Fetch list of uploaded files
+  const fetchUploadedFiles = async () => {
+    try {
+      const res = await fetch('/api/files');
+      const data = await res.json();
+      if (data.status === 'success') {
+        setUploadedFiles(data.files || []);
+        if (data.files && data.files.length > 0) {
+          setIngested(true);
+        }
+      }
+    } catch (e) {
+      console.error('Failed to fetch uploaded files:', e);
+    }
+  };
+
+  // Load files on component mount
+  useEffect(() => {
+    fetchUploadedFiles();
+  }, []);
+
+  const handleDeleteFile = async (filename) => {
+    if (!window.confirm(`Are you sure you want to delete "${filename}" and all its chunks?`)) {
+      return;
+    }
+    
+    setLoading(true);
+    clearStatus();
+    try {
+      addStatus(`Deleting ${filename}...`, 'info');
+      const res = await fetch(`/api/file/${encodeURIComponent(filename)}`, {
+        method: 'DELETE',
+      });
+      const result = await res.json();
+      
+      if (result.status === 'success') {
+        addStatus(`Successfully deleted ${filename} (${result.deleted_count} chunks removed)`, 'success');
+        await fetchUploadedFiles(); // Refresh file list
+      } else {
+        addStatus(`Error: ${result.message}`, 'error');
+      }
+    } catch (e) {
+      addStatus('Error: ' + (e.message || 'Delete failed.'), 'error');
+    }
+    setLoading(false);
+  };
+
   const handleIngest = async (data) => {
     clearStatus();
     setLoading(true);
+    let success = false;
     try {
-      addStatus('Uploading...', 'info');
-      let res;
-      if (data.file) {
-        const formData = new FormData();
-        formData.append('file', data.file);
-        res = await fetch('/api/ingest/file', {
-          method: 'POST',
-          body: formData,
-        });
+      if (data.files) {
+        // Handle multiple files
+        for (const file of data.files) {
+          addStatus(`Uploading ${file.name}...`, 'info');
+          const formData = new FormData();
+          formData.append('file', file);
+          const res = await fetch('/api/ingest/file', {
+            method: 'POST',
+            body: formData,
+          });
+          if (!res.ok) throw new Error(`Failed to upload ${file.name}`);
+          const result = await res.json();
+          addStatus(`${file.name}: Chunked into ${result.chunks} pieces.`, 'info');
+        }
+        addStatus('All files uploaded successfully!', 'success');
+        setIngested(true);
+        await fetchUploadedFiles(); // Refresh file list
+        success = true;
       } else if (data.url) {
-        res = await fetch('/api/ingest/url', {
+        addStatus('Uploading...', 'info');
+        const res = await fetch('/api/ingest/url', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ url: data.url }),
         });
+        if (!res.ok) throw new Error('Ingestion failed');
+        const result = await res.json();
+        addStatus(`Chunked into ${result.chunks} pieces.`, 'info');
+        addStatus('Success! Document is ready for Q&A.', 'success');
+        setIngested(true);
+        await fetchUploadedFiles(); // Refresh file list for URL too
+        success = true;
       }
-      if (!res.ok) throw new Error('Ingestion failed');
-      addStatus('Ingesting and normalizing...', 'info');
-      const result = await res.json();
-      addStatus(`Chunked into ${result.chunks} pieces.`, 'info');
-      addStatus('Embedding and vectorizing...', 'info');
-      addStatus('Success! Document is ready for Q&A.', 'success');
-      setIngested(true);
     } catch (e) {
       addStatus('Error: ' + (e.message || 'Ingestion failed.'), 'error');
+      success = false;
     }
     setLoading(false);
+    return success;
   };
 
   return (
@@ -137,7 +279,13 @@ const App = () => {
         <Container maxWidth="lg" sx={{ py: 3 }}>
           <Grid container spacing={3} alignItems="stretch">
             <Grid item xs={12} md={4}>
-              <UploadOrLink onIngest={handleIngest} loading={loading} />
+              <UploadOrLink 
+                onIngest={handleIngest} 
+                loading={loading}
+                uploadedFiles={uploadedFiles}
+                onDeleteFile={handleDeleteFile}
+                onRefreshFiles={fetchUploadedFiles}
+              />
               {status.length > 0 && (
                 <Stack spacing={1} sx={{ mt: 2 }}>
                   {status.map((s, i) => (

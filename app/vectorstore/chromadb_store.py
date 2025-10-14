@@ -39,9 +39,22 @@ def add_embeddings(collection, embeddings, metadatas):
     """
     Adds embeddings and metadata to the ChromaDB collection.
     Each embedding must be a list of floats.
+    Generates unique IDs using UUID to avoid collisions.
     """
-    ids = [f"doc_{i}" for i in range(len(embeddings))]
+    import uuid
+    from datetime import datetime
+    
+    # Generate unique IDs for each document chunk
+    ids = [f"{metadatas[i].get('filename', 'unknown')}_{uuid.uuid4().hex[:8]}_{i}" for i in range(len(embeddings))]
     documents = [meta["text"] for meta in metadatas]
+    
+    # Add timestamp to metadata for tracking
+    for meta in metadatas:
+        if "timestamp" not in meta:
+            meta["timestamp"] = datetime.now().isoformat()
+    
+    print(f"[CHROMADB] Adding {len(ids)} documents with unique IDs")
+    
     # Chroma expects: ids, embeddings, metadatas, documents
     collection.add(
         ids=ids,
