@@ -3,19 +3,24 @@ from pydantic import BaseModel
 from app.vectorstore import chromadb_store
 import os
 import re
-try:
-    # Prefer the official langchain-ollama integration (new package)
-    from langchain_ollama import OllamaLLM
-    from langchain.prompts import PromptTemplate
-    LLMClass = OllamaLLM
-except Exception:
-    try:
-        # Fallback to older community/langchain imports if langchain-ollama is not installed
-        from langchain.llms import Ollama
-        from langchain.prompts import PromptTemplate
-        LLMClass = Ollama
-    except Exception:
-        LLMClass = None
+# Use Google Gemini
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain.prompts import PromptTemplate
+
+def get_llm():
+    api_key = os.environ.get("GOOGLE_API_KEY")
+    if not api_key:
+        # Try to load from .env if not in env
+        from dotenv import load_dotenv
+        load_dotenv()
+        api_key = os.environ.get("GOOGLE_API_KEY")
+        
+    if not api_key:
+        raise ValueError("GOOGLE_API_KEY not found. Please set it in .env or environment variables.")
+        
+    return ChatGoogleGenerativeAI(model="gemini-2.0-flash", google_api_key=api_key, temperature=0)
+
+LLMClass = None # Deprecated in favor of get_llm
 
 router = APIRouter()
 
@@ -65,21 +70,15 @@ async def ask(request: AskRequest):
             }
 
         # Prepare rewrite prompt
-        if LLMClass is None:
-            raise HTTPException(status_code=500, detail="LLM not available for rewrite.")
-        llm_for_rewrite = LLMClass(model="llama2:7b")
+        llm_for_rewrite = get_llm()
         rewrite_prompt = (
             f"Rewrite the following answer to be at most {word_target} words. "
             "Do not add new information; only rephrase and shorten while preserving facts.\n\n"
             "Original answer:\n" + source_answer + "\n\nRewritten answer:\n"
         )
-        if hasattr(llm_for_rewrite, "invoke"):
-            try:
-                rewritten = llm_for_rewrite.invoke(rewrite_prompt)
-            except Exception:
-                rewritten = llm_for_rewrite(rewrite_prompt)
-        else:
-            rewritten = llm_for_rewrite(rewrite_prompt)
+        # Call Gemini
+        response = llm_for_rewrite.invoke(rewrite_prompt)
+        rewritten = response.content if hasattr(response, "content") else str(response)
 
         # cache rewritten answer as the last answer for tenant
         with _LAST_ANSWERS_LOCK:
@@ -93,9 +92,18 @@ async def ask(request: AskRequest):
             "tenant_id": tenant_id,
         }
     # 1. Retrieve relevant chunks from ChromaDB using correct collection name
+    # Generate embedding for the question
+    from app.processing import document_processing
+    # We can reuse the embed_chunks function but for a single string
+    # Note: embed_chunks expects a list
+    try:
+        query_embedding = document_processing.embed_chunks([question])
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to generate embedding for question: {str(e)}")
+
     client = chromadb_store.get_chroma_client()
     collection = client.get_or_create_collection(chromadb_store.COLLECTION_NAME)
-    results = chromadb_store.hybrid_search(collection, question, k=10)  # Increase k for more context
+    results = chromadb_store.hybrid_search(collection, query_embedding, k=10)  # Increase k for more context
     docs = []
     metadatas = []
     if results and "documents" in results and results["documents"]:
@@ -218,16 +226,10 @@ async def ask(request: AskRequest):
             "Content:\n" + summary_text + "\n\nSummary:\n"
         )
 
-        if LLMClass is None:
-            raise HTTPException(status_code=500, detail="LLM not available for summarization.")
-        llm_sum = LLMClass(model="llama2:7b")
-        if hasattr(llm_sum, "invoke"):
-            try:
-                summary_answer = llm_sum.invoke(summary_prompt)
-            except Exception:
-                summary_answer = llm_sum(summary_prompt)
-        else:
-            summary_answer = llm_sum(summary_prompt)
+        llm_sum = get_llm()
+        # Call Gemini
+        response = llm_sum.invoke(summary_prompt)
+        summary_answer = response.content if hasattr(response, "content") else str(response)
 
         # Cache summary for tenant
         tenant_key = tenant_id or "default"
@@ -245,34 +247,43 @@ async def ask(request: AskRequest):
             "tenant_id": tenant_id
         }
 
-    # 2. Generate answer using Ollama (LangChain) with all-minilm:22m
-    if LLMClass is None:
-        raise HTTPException(status_code=500, detail="LangChain or Ollama LLM not installed. Install 'langchain-ollama' or ensure langchain community Ollama is available.")
+    # Build context with filename information
+    context_with_files = context
+    if metadatas:
+        # Extract unique filenames from metadata
+        filenames = set()
+        for meta in metadatas:
+            if meta and "filename" in meta:
+                filenames.add(meta["filename"])
+        
+        if filenames:
+            files_list = ", ".join(sorted(filenames))
+            context_with_files = f"Uploaded files: {files_list}\n\n{context}"
+    
+    # 2. Generate answer using Gemini with conversational capability
     prompt = PromptTemplate(
         input_variables=["context", "question"],
         template="""
-You are an enterprise assistant. Use ONLY the following context to answer the user's question. If the answer is not in the context, say 'The answer is not found in the provided document.' Do NOT use any outside knowledge.
+You are a helpful AI assistant for document analysis.
+
+For document-related questions: Use the context below to provide a direct, specific answer. Cite the filename when relevant.
+
+For general greetings or questions: Respond briefly and naturally.
 
 Context:
 {context}
 
 Question: {question}
 
-Answer as concisely as possible. Do not invent question numbers or sections. If not found, reply exactly: The answer is not found in the provided document.
+Answer directly and concisely without introductory phrases like "I'm here to help" or "Let me assist you".
         """
     )
-    # Instantiate the LLM - class may be OllamaLLM or legacy Ollama
-    llm = LLMClass(model="llama2:7b")
+    # Instantiate the LLM
+    llm = get_llm()
     # Use .invoke() if available (langchain-core new API), else fall back to calling
-    if hasattr(llm, "invoke"):
-        # .invoke expects a PromptValue or plain string depending on implementation
-        try:
-            answer = llm.invoke(prompt.format(context=context, question=question))
-        except Exception:
-            # fallback to legacy call
-            answer = llm(prompt.format(context=context, question=question))
-    else:
-        answer = llm(prompt.format(context=context, question=question))
+    # Call Gemini
+    response = llm.invoke(prompt.format(context=context_with_files, question=question))
+    answer = response.content if hasattr(response, "content") else str(response)
 
     # Cache the last answer for this tenant to support refinement chaining
     tenant_key = tenant_id or "default"

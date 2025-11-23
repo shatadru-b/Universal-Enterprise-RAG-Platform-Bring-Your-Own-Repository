@@ -408,29 +408,21 @@ def normalize_document(doc_bytes, filetype):
                 return "Error: Unable to decode file as text."
 
 
-def chunk_document(text, chunk_size=512, overlap=64):
+def chunk_document(text, chunk_size=1000, overlap=200):
     """
-    Splits text into overlapping chunks for embedding.
+    Splits text into overlapping chunks using RecursiveCharacterTextSplitter.
+    This respects document structure (paragraphs, sentences) for better context.
     """
-    chunk_size = 1024  # Increased chunk size for better context
-    overlap = 128      # Slightly increased overlap
-    chunks = []
-    start = 0
-    import re
-    control_re = re.compile(r"[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]+")
-    while start < len(text):
-        end = min(start + chunk_size, len(text))
-        chunk = text[start:end]
-        # Remove control/binary characters which may appear from bad decoding
-        chunk = control_re.sub(" ", chunk)
-        # Trim whitespace
-        chunk = chunk.strip()
-        if not chunk:
-            start += chunk_size - overlap
-            continue
-        chunks.append(chunk)
-        print(f"[INGEST DEBUG] Chunk {len(chunks)-1}: {repr(chunk[:100])} ...")
-        start += chunk_size - overlap
+    from langchain_text_splitters import RecursiveCharacterTextSplitter
+    
+    text_splitter = RecursiveCharacterTextSplitter(
+        chunk_size=chunk_size,
+        chunk_overlap=overlap,
+        separators=["\n\n", "\n", ". ", " ", ""],
+        length_function=len,
+    )
+    
+    chunks = text_splitter.split_text(text)
     print(f"[INGEST DEBUG] Total chunks created: {len(chunks)}")
     return chunks
 
@@ -450,9 +442,14 @@ def embed_chunks(chunks):
             embedder = OllamaEmbeddings(model="all-minilm:22m")
         except Exception:
             raise ImportError("Please install langchain-ollama or langchain-community: pip install langchain-ollama or pip install langchain-community")
-    embeddings = embedder.embed_documents(chunks)
-    if embeddings and len(embeddings) > 0:
-        print(f"[DEBUG] Embedding dimension: {len(embeddings[0])}")
-    else:
-        print("[DEBUG] No embeddings generated.")
-    return embeddings
+    
+    try:
+        embeddings = embedder.embed_documents(chunks)
+        if embeddings and len(embeddings) > 0:
+            print(f"[DEBUG] Embedding dimension: {len(embeddings[0])}")
+        else:
+            print("[DEBUG] No embeddings generated.")
+        return embeddings
+    except Exception as e:
+        print(f"[EMBED ERROR] Failed to generate embeddings: {e}")
+        raise e

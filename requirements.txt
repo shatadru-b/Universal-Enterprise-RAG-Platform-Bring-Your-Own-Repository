@@ -9,6 +9,8 @@ ollama
 python-dotenv
 requests
 pydantic
+langchain-google-genai
+google-generativeai
 
 # Document Processing Libraries
 PyPDF2

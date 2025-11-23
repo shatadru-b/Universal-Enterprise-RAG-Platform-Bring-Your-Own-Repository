@@ -64,9 +64,9 @@ def add_embeddings(collection, embeddings, metadatas):
     )
 
 
-def hybrid_search(collection, query, k=5):
+def hybrid_search(collection, query_embeddings, k=5):
     """
-    Performs a vector search in ChromaDB collection.
+    Performs a vector search in ChromaDB collection using pre-computed embeddings.
     """
-    results = collection.query(query_texts=[query], n_results=k)
+    results = collection.query(query_embeddings=query_embeddings, n_results=k)
     return results

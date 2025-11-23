@@ -103,13 +103,21 @@ async def list_files():
         results = collection.get(include=["metadatas"], limit=10000)
         metadatas = results.get("metadatas", [])
         
-        # Extract unique filenames
-        filenames = set()
+        # Extract unique filenames with metadata
+        files_map = {}
         for meta in metadatas:
             if meta and "filename" in meta:
-                filenames.add(meta["filename"])
+                fname = meta["filename"]
+                if fname not in files_map:
+                    files_map[fname] = {
+                        "filename": fname,
+                        "upload_time": meta.get("upload_time"),
+                        "file_size": meta.get("file_size"),
+                        "content_type": meta.get("content_type")
+                    }
         
-        return {"status": "success", "files": sorted(list(filenames))}
+        # Return list of file objects sorted by filename
+        return {"status": "success", "files": sorted(list(files_map.values()), key=lambda x: x["filename"])}
     except Exception as e:
         return {"status": "error", "message": str(e), "files": []}
 
@@ -188,9 +196,20 @@ async def ingest_file(file: UploadFile = File(...)):
 
         # 5. Store in ChromaDB
         print(f"[INGEST] Storing in ChromaDB")
+        import datetime
+        upload_time = datetime.datetime.now().isoformat()
+        
         client = chromadb_store.get_chroma_client()
         collection = client.get_or_create_collection(chromadb_store.COLLECTION_NAME)
-        metadatas = [{"filename": file.filename, "chunk": i, "text": chunk} for i, chunk in enumerate(chunks)]
+        
+        metadatas = [{
+            "filename": file.filename, 
+            "chunk": i, 
+            "text": chunk,
+            "upload_time": upload_time,
+            "file_size": len(content),
+            "content_type": file.content_type
+        } for i, chunk in enumerate(chunks)]
         chromadb_store.add_embeddings(collection, embeddings, metadatas)
         
         print(f"[INGEST] ✓ Successfully ingested {file.filename}: {len(chunks)} chunks stored")
